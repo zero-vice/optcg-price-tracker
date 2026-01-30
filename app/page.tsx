@@ -21,12 +21,12 @@ const SET_DATA = [
   { id: 'op-06', code: 'OP-06', name: 'Wings of the Captain', type: 'main' },
   { id: 'op-07', code: 'OP-07', name: '500 Years in the Future', type: 'main' },
   { id: 'op-08', code: 'OP-08', name: 'Two Legends', type: 'main' },
-  { id: 'op-09', code: 'OP-09', name: 'The Four Emperors', type: 'main' },
+  { id: 'op-09', code: 'OP-09', name: 'Emperors of the New World', type: 'main' },
   { id: 'op-10', code: 'OP-10', name: 'Royal Blood', type: 'main' },
-  { id: 'op-11', code: 'OP-11', name: 'Emperors of the Sea', type: 'main' },
-  { id: 'op-12', code: 'OP-12', name: 'TBD', type: 'main' },
-  { id: 'op-13', code: 'OP-13', name: 'TBD', type: 'main' },
-  { id: 'op-14', code: 'OP-14', name: 'TBD', type: 'main' },
+  { id: 'op-11', code: 'OP-11', name: 'Fist of a Divine Speed', type: 'main' },
+  { id: 'op-12', code: 'OP-12', name: 'Legacy of the Master', type: 'main' },
+  { id: 'op-13', code: 'OP-13', name: 'Carrying On His Will', type: 'main' },
+  { id: 'op-14', code: 'OP-14', name: 'The Azure Sea\'s Seven', type: 'main' },
   { id: 'prb-01', code: 'PRB-01', name: 'Premium Booster Vol. 1', type: 'premium' },
   { id: 'prb-02', code: 'PRB-02', name: 'Premium Booster Vol. 2', type: 'premium' },
   { id: 'eb-01', code: 'EB-01', name: 'Extra Booster: Memorial Collection', type: 'extra' },
@@ -45,8 +45,11 @@ export default function Home() {
   const [portfolio, setPortfolio] = useState({});
   const [loading, setLoading] = useState(true);
   const [editMode, setEditMode] = useState(false);
+  const [costEditMode, setCostEditMode] = useState(false);
   const [tempBoxPrice, setTempBoxPrice] = useState('');
   const [tempCasePrice, setTempCasePrice] = useState('');
+  const [tempBoxCost, setTempBoxCost] = useState('');
+  const [tempCaseCost, setTempCaseCost] = useState('');
   const [filterType, setFilterType] = useState('all');
   const [saveStatus, setSaveStatus] = useState('');
 
@@ -106,7 +109,7 @@ export default function Home() {
   };
 
   const getPortfolioItem = (setId) => {
-    return portfolio[setId] || { boxes: 0, cases: 0 };
+    return portfolio[setId] || { boxes: 0, cases: 0, boxCost: 0, caseCost: 0 };
   };
 
   const updatePortfolioQuantity = (setId, type, delta) => {
@@ -123,6 +126,27 @@ export default function Home() {
 
     setPortfolio(newPortfolio);
     savePortfolioData(newPortfolio);
+  };
+
+  const updatePortfolioCost = (setId) => {
+    const current = getPortfolioItem(setId);
+    const boxCost = tempBoxCost ? parseFloat(tempBoxCost) : current.boxCost || 0;
+    const caseCost = tempCaseCost ? parseFloat(tempCaseCost) : current.caseCost || 0;
+
+    const newPortfolio = {
+      ...portfolio,
+      [setId]: {
+        ...current,
+        boxCost,
+        caseCost,
+      },
+    };
+
+    setPortfolio(newPortfolio);
+    savePortfolioData(newPortfolio);
+    setCostEditMode(false);
+    setTempBoxCost('');
+    setTempCaseCost('');
   };
 
   const handleAddPrice = () => {
@@ -185,6 +209,7 @@ export default function Home() {
 
   const calculatePortfolioTotals = () => {
     let totalValue = 0;
+    let totalCost = 0;
     let totalBoxes = 0;
     let totalCases = 0;
     let itemizedSets = [];
@@ -198,23 +223,32 @@ export default function Home() {
         const caseValue = (prices.case || 0) * item.cases;
         const setTotal = boxValue + caseValue;
 
+        const boxCostTotal = (item.boxCost || 0) * item.boxes;
+        const caseCostTotal = (item.caseCost || 0) * item.cases;
+        const setCostTotal = boxCostTotal + caseCostTotal;
+
         totalBoxes += item.boxes;
         totalCases += item.cases;
         totalValue += setTotal;
+        totalCost += setCostTotal;
 
         itemizedSets.push({
           ...set,
           boxes: item.boxes,
           cases: item.cases,
+          boxCost: item.boxCost || 0,
+          caseCost: item.caseCost || 0,
           boxValue,
           caseValue,
           totalValue: setTotal,
+          totalCost: setCostTotal,
+          profit: setTotal - setCostTotal,
           prices,
         });
       }
     });
 
-    return { totalValue, totalBoxes, totalCases, itemizedSets };
+    return { totalValue, totalCost, totalProfit: totalValue - totalCost, totalBoxes, totalCases, itemizedSets };
   };
 
   // Main Tab Navigation
@@ -255,7 +289,7 @@ export default function Home() {
 
   // Portfolio List View
   const renderPortfolioList = () => {
-    const { totalValue, totalBoxes, totalCases, itemizedSets } = calculatePortfolioTotals();
+    const { totalValue, totalCost, totalProfit, totalBoxes, totalCases, itemizedSets } = calculatePortfolioTotals();
 
     return (
       <div className="min-h-screen bg-slate-900 text-white">
@@ -274,11 +308,30 @@ export default function Home() {
         {/* Portfolio Summary */}
         <div className="p-4">
           <div className="bg-gradient-to-r from-amber-500/20 to-amber-600/10 rounded-lg p-4 border border-amber-500/30">
-            <h2 className="text-amber-400 font-medium text-sm mb-3">Portfolio Value</h2>
-            <div className="text-3xl font-bold text-white mb-2">
-              ${totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            <h2 className="text-amber-400 font-medium text-sm mb-3">Portfolio Summary</h2>
+            <div className="grid grid-cols-2 gap-4 mb-3">
+              <div>
+                <div className="text-slate-400 text-xs">Market Value</div>
+                <div className="text-2xl font-bold text-white">
+                  ${totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+              </div>
+              <div>
+                <div className="text-slate-400 text-xs">Total Cost</div>
+                <div className="text-2xl font-bold text-slate-300">
+                  ${totalCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+              </div>
             </div>
-            <div className="flex gap-4 text-sm">
+            <div className="pt-3 border-t border-amber-500/20">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400 text-sm">Profit/Loss:</span>
+                <span className={`text-xl font-bold ${totalProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  {totalProfit >= 0 ? '+' : ''}{formatPrice(totalProfit)}
+                </span>
+              </div>
+            </div>
+            <div className="flex gap-4 text-sm mt-3 pt-3 border-t border-amber-500/20">
               <div>
                 <span className="text-slate-400">Boxes: </span>
                 <span className="text-white font-medium">{totalBoxes}</span>
@@ -320,18 +373,33 @@ export default function Home() {
                 const prices = getCurrentPrice(set.id);
                 const boxValue = (prices.boosterBox || 0) * item.boxes;
                 const caseValue = (prices.case || 0) * item.cases;
+                const boxCostTotal = (item.boxCost || 0) * item.boxes;
+                const caseCostTotal = (item.caseCost || 0) * item.cases;
+                const totalVal = boxValue + caseValue;
+                const totalCst = boxCostTotal + caseCostTotal;
                 return {
                   ...set,
                   boxes: item.boxes,
                   cases: item.cases,
+                  boxCost: item.boxCost || 0,
+                  caseCost: item.caseCost || 0,
                   boxValue,
                   caseValue,
-                  totalValue: boxValue + caseValue,
+                  totalValue: totalVal,
+                  totalCost: totalCst,
+                  profit: totalVal - totalCst,
                   prices,
                 };
               })
           ).map((set) => (
-            <div key={set.id} className="bg-slate-800 rounded-lg p-3 border border-slate-700">
+            <div 
+              key={set.id} 
+              className="bg-slate-800 rounded-lg p-3 border border-slate-700 cursor-pointer hover:border-amber-500/50 transition-colors"
+              onClick={() => {
+                setSelectedSet(set);
+                setView('portfolio-detail');
+              }}
+            >
               <div className="flex justify-between items-start mb-3">
                 <div>
                   <div className="flex items-center gap-2">
@@ -352,58 +420,247 @@ export default function Home() {
                 </div>
                 <div className="text-right">
                   <div className="text-white font-medium">${set.totalValue.toFixed(2)}</div>
-                  <div className="text-slate-400 text-xs">Total Value</div>
+                  <div className={`text-xs ${set.profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {set.profit >= 0 ? '+' : ''}{formatPrice(set.profit)}
+                  </div>
                 </div>
               </div>
 
-              {/* Quantity Controls */}
-              <div className="grid grid-cols-2 gap-3">
-                {/* Boxes */}
+              {/* Quick Stats */}
+              <div className="grid grid-cols-2 gap-3 text-xs">
                 <div className="bg-slate-700/50 rounded p-2">
-                  <div className="text-xs text-slate-400 mb-1">
-                    Boxes @ {formatPrice(set.prices?.boosterBox)}
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <button
-                      onClick={() => updatePortfolioQuantity(set.id, 'boxes', -1)}
-                      className="w-8 h-8 rounded bg-slate-600 text-white font-bold hover:bg-slate-500 transition-colors"
-                    >
-                      −
-                    </button>
-                    <span className="text-white font-bold text-lg">{set.boxes}</span>
-                    <button
-                      onClick={() => updatePortfolioQuantity(set.id, 'boxes', 1)}
-                      className="w-8 h-8 rounded bg-amber-500 text-slate-900 font-bold hover:bg-amber-400 transition-colors"
-                    >
-                      +
-                    </button>
-                  </div>
+                  <span className="text-slate-400">Boxes: </span>
+                  <span className="text-white font-medium">{set.boxes}</span>
+                  {set.boxCost > 0 && (
+                    <span className="text-slate-500 ml-1">@ {formatPrice(set.boxCost)}</span>
+                  )}
                 </div>
-
-                {/* Cases */}
                 <div className="bg-slate-700/50 rounded p-2">
-                  <div className="text-xs text-slate-400 mb-1">
-                    Cases @ {formatPrice(set.prices?.case)}
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <button
-                      onClick={() => updatePortfolioQuantity(set.id, 'cases', -1)}
-                      className="w-8 h-8 rounded bg-slate-600 text-white font-bold hover:bg-slate-500 transition-colors"
-                    >
-                      −
-                    </button>
-                    <span className="text-white font-bold text-lg">{set.cases}</span>
-                    <button
-                      onClick={() => updatePortfolioQuantity(set.id, 'cases', 1)}
-                      className="w-8 h-8 rounded bg-amber-500 text-slate-900 font-bold hover:bg-amber-400 transition-colors"
-                    >
-                      +
-                    </button>
-                  </div>
+                  <span className="text-slate-400">Cases: </span>
+                  <span className="text-white font-medium">{set.cases}</span>
+                  {set.caseCost > 0 && (
+                    <span className="text-slate-500 ml-1">@ {formatPrice(set.caseCost)}</span>
+                  )}
                 </div>
               </div>
             </div>
           ))}
+        </div>
+
+        {/* Save Status */}
+        {saveStatus && (
+          <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-green-500 text-white px-4 py-2 rounded-lg text-sm">
+            {saveStatus}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Portfolio Detail View
+  const renderPortfolioDetailView = () => {
+    if (!selectedSet) return null;
+    const current = getCurrentPrice(selectedSet.id);
+    const portfolioItem = getPortfolioItem(selectedSet.id);
+    
+    const boxValue = (current.boosterBox || 0) * portfolioItem.boxes;
+    const caseValue = (current.case || 0) * portfolioItem.cases;
+    const totalValue = boxValue + caseValue;
+    
+    const boxCostTotal = (portfolioItem.boxCost || 0) * portfolioItem.boxes;
+    const caseCostTotal = (portfolioItem.caseCost || 0) * portfolioItem.cases;
+    const totalCost = boxCostTotal + caseCostTotal;
+    const profit = totalValue - totalCost;
+
+    return (
+      <div className="min-h-screen bg-slate-900 text-white">
+        {/* Header */}
+        <div className="bg-slate-800 border-b border-amber-500/30 p-4">
+          <button
+            onClick={() => {
+              setView('list');
+              setSelectedSet(null);
+              setCostEditMode(false);
+            }}
+            className="text-amber-400 text-sm mb-2 flex items-center gap-1"
+          >
+            ← Back to Portfolio
+          </button>
+          <h1 className="text-xl font-bold text-amber-400">{selectedSet.code}</h1>
+          <p className="text-slate-400 text-sm">{selectedSet.name}</p>
+        </div>
+
+        <div className="p-4 pb-20">
+          {/* Value Summary */}
+          <div className="bg-gradient-to-r from-amber-500/20 to-amber-600/10 rounded-lg p-4 border border-amber-500/30 mb-4">
+            <div className="grid grid-cols-2 gap-4 mb-3">
+              <div>
+                <div className="text-slate-400 text-xs">Market Value</div>
+                <div className="text-xl font-bold text-white">{formatPrice(totalValue)}</div>
+              </div>
+              <div>
+                <div className="text-slate-400 text-xs">Total Cost</div>
+                <div className="text-xl font-bold text-slate-300">{formatPrice(totalCost)}</div>
+              </div>
+            </div>
+            <div className="pt-3 border-t border-amber-500/20">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400 text-sm">Profit/Loss:</span>
+                <span className={`text-lg font-bold ${profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  {profit >= 0 ? '+' : ''}{formatPrice(profit)}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Holdings with Quantity Controls */}
+          <div className="bg-slate-800 rounded-lg p-4 border border-slate-700 mb-4">
+            <h2 className="text-amber-400 font-medium mb-3">Your Holdings</h2>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-slate-700/50 rounded p-3">
+                <div className="text-xs text-slate-400 mb-2">Booster Boxes</div>
+                <div className="flex items-center justify-between mb-2">
+                  <button
+                    onClick={() => updatePortfolioQuantity(selectedSet.id, 'boxes', -1)}
+                    className="w-10 h-10 rounded bg-slate-600 text-white font-bold text-lg hover:bg-slate-500"
+                  >
+                    −
+                  </button>
+                  <span className="text-white font-bold text-2xl">{portfolioItem.boxes}</span>
+                  <button
+                    onClick={() => updatePortfolioQuantity(selectedSet.id, 'boxes', 1)}
+                    className="w-10 h-10 rounded bg-amber-500 text-slate-900 font-bold text-lg hover:bg-amber-400"
+                  >
+                    +
+                  </button>
+                </div>
+                <div className="text-center text-xs text-slate-400">
+                  Value: {formatPrice(boxValue)}
+                </div>
+              </div>
+              <div className="bg-slate-700/50 rounded p-3">
+                <div className="text-xs text-slate-400 mb-2">Cases</div>
+                <div className="flex items-center justify-between mb-2">
+                  <button
+                    onClick={() => updatePortfolioQuantity(selectedSet.id, 'cases', -1)}
+                    className="w-10 h-10 rounded bg-slate-600 text-white font-bold text-lg hover:bg-slate-500"
+                  >
+                    −
+                  </button>
+                  <span className="text-white font-bold text-2xl">{portfolioItem.cases}</span>
+                  <button
+                    onClick={() => updatePortfolioQuantity(selectedSet.id, 'cases', 1)}
+                    className="w-10 h-10 rounded bg-amber-500 text-slate-900 font-bold text-lg hover:bg-amber-400"
+                  >
+                    +
+                  </button>
+                </div>
+                <div className="text-center text-xs text-slate-400">
+                  Value: {formatPrice(caseValue)}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Cost Basis */}
+          <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
+            <div className="flex justify-between items-center mb-3">
+              <h2 className="text-amber-400 font-medium">Cost Basis</h2>
+              {!costEditMode && (
+                <button
+                  onClick={() => {
+                    setCostEditMode(true);
+                    setTempBoxCost(portfolioItem.boxCost?.toString() || '');
+                    setTempCaseCost(portfolioItem.caseCost?.toString() || '');
+                  }}
+                  className="text-xs bg-amber-500 text-slate-900 px-3 py-1 rounded font-medium"
+                >
+                  Edit
+                </button>
+              )}
+            </div>
+
+            {costEditMode ? (
+              <div className="space-y-3">
+                <div>
+                  <label className="text-slate-400 text-xs block mb-1">
+                    Cost per Box ($)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={tempBoxCost}
+                    onChange={(e) => setTempBoxCost(e.target.value)}
+                    placeholder="89.99"
+                    className="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-slate-400 text-xs block mb-1">Cost per Case ($)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={tempCaseCost}
+                    onChange={(e) => setTempCaseCost(e.target.value)}
+                    placeholder="450.00"
+                    className="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-white"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => updatePortfolioCost(selectedSet.id)}
+                    className="flex-1 bg-amber-500 text-slate-900 py-2 rounded font-medium"
+                  >
+                    Save Cost
+                  </button>
+                  <button
+                    onClick={() => {
+                      setCostEditMode(false);
+                      setTempBoxCost('');
+                      setTempCaseCost('');
+                    }}
+                    className="flex-1 bg-slate-700 text-slate-300 py-2 rounded"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-slate-700/50 rounded p-3">
+                  <div className="text-slate-400 text-xs mb-1">Per Box</div>
+                  <div className="text-white font-medium">{formatPrice(portfolioItem.boxCost)}</div>
+                  <div className="text-slate-500 text-xs mt-1">
+                    Total: {formatPrice(boxCostTotal)}
+                  </div>
+                </div>
+                <div className="bg-slate-700/50 rounded p-3">
+                  <div className="text-slate-400 text-xs mb-1">Per Case</div>
+                  <div className="text-white font-medium">{formatPrice(portfolioItem.caseCost)}</div>
+                  <div className="text-slate-500 text-xs mt-1">
+                    Total: {formatPrice(caseCostTotal)}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Current Market Prices */}
+          <div className="mt-4 bg-slate-800 rounded-lg p-4 border border-slate-700">
+            <h2 className="text-amber-400 font-medium mb-3">Current Market Prices</h2>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-slate-700/50 rounded p-3 text-center">
+                <div className="text-xl font-bold text-white">
+                  {formatPrice(current.boosterBox)}
+                </div>
+                <div className="text-slate-400 text-xs mt-1">Booster Box</div>
+              </div>
+              <div className="bg-slate-700/50 rounded p-3 text-center">
+                <div className="text-xl font-bold text-white">{formatPrice(current.case)}</div>
+                <div className="text-slate-400 text-xs mt-1">Case</div>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Save Status */}
@@ -762,6 +1019,10 @@ export default function Home() {
   // Render based on current state
   if (view === 'detail') {
     return renderDetailView();
+  }
+  
+  if (view === 'portfolio-detail') {
+    return renderPortfolioDetailView();
   }
 
   return mainTab === 'prices' ? renderPriceList() : renderPortfolioList();
