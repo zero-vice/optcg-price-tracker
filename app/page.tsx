@@ -689,7 +689,7 @@ export default function Home() {
                     <Tooltip
                       contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155' }}
                       labelFormatter={formatDate}
-                      formatter={(value) => [`$${value?.toFixed(2)}`, '']}
+                      formatter={(value) => [`$${Number(value)?.toFixed(2)}`, '']}
                     />
                     <Legend />
                     <Line
