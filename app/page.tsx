@@ -10,6 +10,12 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts';
+import { createClient } from '@supabase/supabase-js';
+
+// Supabase setup
+const supabaseUrl = 'https://kzxcykitixhzkqfnzjpm.supabase.co';
+const supabaseKey = 'sb_publishable_Ev2jrbl4nMmreq8QSTGqag_YB_OoxkQ';
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Set data with names
 const SET_DATA = [
@@ -34,16 +40,20 @@ const SET_DATA = [
   { id: 'eb-03', code: 'EB-03', name: 'Extra Booster Vol. 3', type: 'extra' },
 ];
 
-const PRICE_STORAGE_KEY = 'optcg-price-data';
-const PORTFOLIO_STORAGE_KEY = 'optcg-portfolio-data';
+const SYNC_CODE_KEY = 'optcg-sync-code';
 
 export default function Home() {
+  const [syncCode, setSyncCode] = useState('');
+  const [tempSyncCode, setTempSyncCode] = useState('');
+  const [showSyncSetup, setShowSyncSetup] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [mainTab, setMainTab] = useState('prices');
   const [view, setView] = useState('list');
   const [selectedSet, setSelectedSet] = useState(null);
   const [priceData, setPriceData] = useState({});
   const [portfolio, setPortfolio] = useState({});
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [costEditMode, setCostEditMode] = useState(false);
   const [tempBoxPrice, setTempBoxPrice] = useState('');
@@ -53,53 +63,166 @@ export default function Home() {
   const [filterType, setFilterType] = useState('all');
   const [saveStatus, setSaveStatus] = useState('');
 
-  // Load data from localStorage on mount
+  // Check for existing sync code on mount
   useEffect(() => {
-    loadData();
+    const existingCode = localStorage.getItem(SYNC_CODE_KEY);
+    if (existingCode) {
+      setSyncCode(existingCode);
+      loadDataFromSupabase(existingCode);
+    } else {
+      setShowSyncSetup(true);
+      setLoading(false);
+    }
   }, []);
 
-  const loadData = () => {
-    try {
-      const priceResult = localStorage.getItem(PRICE_STORAGE_KEY);
-      if (priceResult) {
-        setPriceData(JSON.parse(priceResult));
-      }
-    } catch (error) {
-      console.log('No existing price data found');
+  const generateSyncCode = () => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let code = '';
+    for (let i = 0; i < 6; i++) {
+      code += chars.charAt(Math.floor(Math.random() * chars.length));
     }
+    return code;
+  };
 
-    try {
-      const portfolioResult = localStorage.getItem(PORTFOLIO_STORAGE_KEY);
-      if (portfolioResult) {
-        setPortfolio(JSON.parse(portfolioResult));
-      }
-    } catch (error) {
-      console.log('No existing portfolio data found');
-    }
-
+  const handleCreateNewCode = async () => {
+    const newCode = generateSyncCode();
+    localStorage.setItem(SYNC_CODE_KEY, newCode);
+    setSyncCode(newCode);
+    setShowSyncSetup(false);
     setLoading(false);
   };
 
-  const savePriceData = (newData) => {
-    try {
-      localStorage.setItem(PRICE_STORAGE_KEY, JSON.stringify(newData));
-      setSaveStatus('Saved!');
+  const handleUseExistingCode = async () => {
+    if (tempSyncCode.length < 4) {
+      setSaveStatus('Code must be at least 4 characters');
       setTimeout(() => setSaveStatus(''), 2000);
-    } catch (error) {
-      setSaveStatus('Save failed');
-      console.error('Failed to save:', error);
+      return;
     }
+    const code = tempSyncCode.toUpperCase();
+    localStorage.setItem(SYNC_CODE_KEY, code);
+    setSyncCode(code);
+    setShowSyncSetup(false);
+    await loadDataFromSupabase(code);
   };
 
-  const savePortfolioData = (newData) => {
+  const loadDataFromSupabase = async (code) => {
+    setLoading(true);
+    setSyncing(true);
+    
     try {
-      localStorage.setItem(PORTFOLIO_STORAGE_KEY, JSON.stringify(newData));
-      setSaveStatus('Saved!');
+      // Load prices
+      const { data: pricesData, error: pricesError } = await supabase
+        .from('prices')
+        .select('*')
+        .eq('user_id', code);
+
+      if (pricesError) throw pricesError;
+
+      // Convert to our format
+      const pricesObj = {};
+      pricesData?.forEach((row) => {
+        if (!pricesObj[row.set_id]) {
+          pricesObj[row.set_id] = [];
+        }
+        pricesObj[row.set_id].push({
+          date: row.date,
+          boosterBox: row.booster_box ? parseFloat(row.booster_box) : null,
+          case: row.case_price ? parseFloat(row.case_price) : null,
+        });
+      });
+      
+      // Sort by date
+      Object.keys(pricesObj).forEach(key => {
+        pricesObj[key].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      });
+      
+      setPriceData(pricesObj);
+
+      // Load portfolio
+      const { data: portfolioData, error: portfolioError } = await supabase
+        .from('portfolio')
+        .select('*')
+        .eq('user_id', code);
+
+      if (portfolioError) throw portfolioError;
+
+      const portfolioObj = {};
+      portfolioData?.forEach((row) => {
+        portfolioObj[row.set_id] = {
+          boxes: row.boxes || 0,
+          cases: row.cases || 0,
+          boxCost: row.box_cost ? parseFloat(row.box_cost) : 0,
+          caseCost: row.case_cost ? parseFloat(row.case_cost) : 0,
+        };
+      });
+      setPortfolio(portfolioObj);
+
+      setSaveStatus('Synced!');
       setTimeout(() => setSaveStatus(''), 2000);
     } catch (error) {
-      setSaveStatus('Save failed');
-      console.error('Failed to save:', error);
+      console.error('Error loading data:', error);
+      setSaveStatus('Sync failed');
+      setTimeout(() => setSaveStatus(''), 2000);
     }
+    
+    setLoading(false);
+    setSyncing(false);
+  };
+
+  const savePriceToSupabase = async (setId, date, boosterBox, casePrice) => {
+    if (!syncCode) return;
+    
+    setSyncing(true);
+    try {
+      const { error } = await supabase
+        .from('prices')
+        .upsert({
+          user_id: syncCode,
+          set_id: setId,
+          date: date,
+          booster_box: boosterBox,
+          case_price: casePrice,
+        }, {
+          onConflict: 'user_id,set_id,date'
+        });
+
+      if (error) throw error;
+      setSaveStatus('Saved!');
+    } catch (error) {
+      console.error('Error saving price:', error);
+      setSaveStatus('Save failed');
+    }
+    setTimeout(() => setSaveStatus(''), 2000);
+    setSyncing(false);
+  };
+
+  const savePortfolioToSupabase = async (setId, data) => {
+    if (!syncCode) return;
+    
+    setSyncing(true);
+    try {
+      const { error } = await supabase
+        .from('portfolio')
+        .upsert({
+          user_id: syncCode,
+          set_id: setId,
+          boxes: data.boxes,
+          cases: data.cases,
+          box_cost: data.boxCost,
+          case_cost: data.caseCost,
+          updated_at: new Date().toISOString(),
+        }, {
+          onConflict: 'user_id,set_id'
+        });
+
+      if (error) throw error;
+      setSaveStatus('Saved!');
+    } catch (error) {
+      console.error('Error saving portfolio:', error);
+      setSaveStatus('Save failed');
+    }
+    setTimeout(() => setSaveStatus(''), 2000);
+    setSyncing(false);
   };
 
   const getCurrentPrice = (setId) => {
@@ -112,44 +235,48 @@ export default function Home() {
     return portfolio[setId] || { boxes: 0, cases: 0, boxCost: 0, caseCost: 0 };
   };
 
-  const updatePortfolioQuantity = (setId, type, delta) => {
+  const updatePortfolioQuantity = async (setId, type, delta) => {
     const current = getPortfolioItem(setId);
     const newQuantity = Math.max(0, (type === 'boxes' ? current.boxes : current.cases) + delta);
 
+    const newData = {
+      ...current,
+      [type]: newQuantity,
+    };
+
     const newPortfolio = {
       ...portfolio,
-      [setId]: {
-        ...current,
-        [type]: newQuantity,
-      },
+      [setId]: newData,
     };
 
     setPortfolio(newPortfolio);
-    savePortfolioData(newPortfolio);
+    await savePortfolioToSupabase(setId, newData);
   };
 
-  const updatePortfolioCost = (setId) => {
+  const updatePortfolioCost = async (setId) => {
     const current = getPortfolioItem(setId);
     const boxCost = tempBoxCost ? parseFloat(tempBoxCost) : current.boxCost || 0;
     const caseCost = tempCaseCost ? parseFloat(tempCaseCost) : current.caseCost || 0;
 
+    const newData = {
+      ...current,
+      boxCost,
+      caseCost,
+    };
+
     const newPortfolio = {
       ...portfolio,
-      [setId]: {
-        ...current,
-        boxCost,
-        caseCost,
-      },
+      [setId]: newData,
     };
 
     setPortfolio(newPortfolio);
-    savePortfolioData(newPortfolio);
+    await savePortfolioToSupabase(setId, newData);
     setCostEditMode(false);
     setTempBoxCost('');
     setTempCaseCost('');
   };
 
-  const handleAddPrice = () => {
+  const handleAddPrice = async () => {
     if (!selectedSet) return;
 
     const boxPrice = tempBoxPrice ? parseFloat(tempBoxPrice) : null;
@@ -177,14 +304,14 @@ export default function Home() {
     }
 
     setPriceData(newData);
-    savePriceData(newData);
+    await savePriceToSupabase(selectedSet.id, today, boxPrice, casePrice);
     setEditMode(false);
     setTempBoxPrice('');
     setTempCasePrice('');
   };
 
   const formatPrice = (price) => {
-    if (price === null || price === undefined) return '—';
+    if (price === null || price === undefined || price === 0) return '—';
     return `$${price.toFixed(2)}`;
   };
 
@@ -251,6 +378,99 @@ export default function Home() {
     return { totalValue, totalCost, totalProfit: totalValue - totalCost, totalBoxes, totalCases, itemizedSets };
   };
 
+  // Sync Setup Screen
+  if (showSyncSetup) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-white p-4">
+        <div className="max-w-md mx-auto pt-10">
+          <h1 className="text-2xl font-bold text-amber-400 text-center mb-2">
+            🏴‍☠️ OP TCG Tracker
+          </h1>
+          <p className="text-slate-400 text-center mb-8">Cloud Sync Setup</p>
+
+          <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-4">
+            <h2 className="text-lg font-medium text-white mb-4">New Device?</h2>
+            <p className="text-slate-400 text-sm mb-4">
+              Create a new sync code to start fresh, or enter an existing code to sync your data from another device.
+            </p>
+            
+            <button
+              onClick={handleCreateNewCode}
+              className="w-full bg-amber-500 text-slate-900 py-3 rounded-lg font-medium mb-4"
+            >
+              Create New Sync Code
+            </button>
+
+            <div className="relative my-4">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-slate-600"></div>
+              </div>
+              <div className="relative flex justify-center text-sm">
+                <span className="px-2 bg-slate-800 text-slate-400">or</span>
+              </div>
+            </div>
+
+            <p className="text-slate-400 text-sm mb-2">Enter existing sync code:</p>
+            <input
+              type="text"
+              value={tempSyncCode}
+              onChange={(e) => setTempSyncCode(e.target.value.toUpperCase())}
+              placeholder="ABC123"
+              maxLength={10}
+              className="w-full bg-slate-700 border border-slate-600 rounded px-4 py-3 text-white text-center text-xl tracking-widest mb-4"
+            />
+            <button
+              onClick={handleUseExistingCode}
+              className="w-full bg-slate-700 text-white py-3 rounded-lg font-medium"
+            >
+              Sync with Code
+            </button>
+          </div>
+        </div>
+        
+        {saveStatus && (
+          <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-red-500 text-white px-4 py-2 rounded-lg text-sm">
+            {saveStatus}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Settings Modal
+  const renderSettings = () => (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 max-w-sm w-full">
+        <h2 className="text-lg font-medium text-amber-400 mb-4">Settings</h2>
+        
+        <div className="mb-4">
+          <p className="text-slate-400 text-sm mb-2">Your Sync Code:</p>
+          <div className="bg-slate-700 rounded px-4 py-3 text-center">
+            <span className="text-2xl font-mono text-white tracking-widest">{syncCode}</span>
+          </div>
+          <p className="text-slate-500 text-xs mt-2">
+            Use this code on other devices to sync your data
+          </p>
+        </div>
+
+        <button
+          onClick={() => loadDataFromSupabase(syncCode)}
+          disabled={syncing}
+          className="w-full bg-slate-700 text-white py-2 rounded-lg font-medium mb-3"
+        >
+          {syncing ? 'Syncing...' : '🔄 Refresh Data'}
+        </button>
+
+        <button
+          onClick={() => setShowSettings(false)}
+          className="w-full bg-amber-500 text-slate-900 py-2 rounded-lg font-medium"
+        >
+          Close
+        </button>
+      </div>
+    </div>
+  );
+
   // Main Tab Navigation
   const renderMainTabs = () => (
     <div className="flex bg-slate-800 border-b border-amber-500/30">
@@ -295,12 +515,22 @@ export default function Home() {
       <div className="min-h-screen bg-slate-900 text-white">
         {/* Header */}
         <div className="bg-slate-800 border-b border-amber-500/30 p-4">
-          <h1 className="text-xl font-bold text-amber-400 text-center">
-            🏴‍☠️ OP TCG Price Tracker
-          </h1>
-          <p className="text-slate-400 text-xs text-center mt-1">
-            Sealed Product Market Prices
-          </p>
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-xl font-bold text-amber-400">
+                🏴‍☠️ OP TCG Tracker
+              </h1>
+              <p className="text-slate-400 text-xs mt-1">
+                Sealed Product Prices
+              </p>
+            </div>
+            <button
+              onClick={() => setShowSettings(true)}
+              className="text-slate-400 hover:text-white p-2"
+            >
+              ⚙️
+            </button>
+          </div>
         </div>
 
         {renderMainTabs()}
@@ -450,9 +680,11 @@ export default function Home() {
         {/* Save Status */}
         {saveStatus && (
           <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-green-500 text-white px-4 py-2 rounded-lg text-sm">
-            {saveStatus}
+            {syncing ? '🔄 ' : ''}{saveStatus}
           </div>
         )}
+        
+        {showSettings && renderSettings()}
       </div>
     );
   };
@@ -666,7 +898,7 @@ export default function Home() {
         {/* Save Status */}
         {saveStatus && (
           <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-green-500 text-white px-4 py-2 rounded-lg text-sm">
-            {saveStatus}
+            {syncing ? '🔄 ' : ''}{saveStatus}
           </div>
         )}
       </div>
@@ -678,12 +910,22 @@ export default function Home() {
     <div className="min-h-screen bg-slate-900 text-white">
       {/* Header */}
       <div className="bg-slate-800 border-b border-amber-500/30 p-4">
-        <h1 className="text-xl font-bold text-amber-400 text-center">
-          🏴‍☠️ OP TCG Price Tracker
-        </h1>
-        <p className="text-slate-400 text-xs text-center mt-1">
-          Sealed Product Market Prices
-        </p>
+        <div className="flex justify-between items-center">
+          <div>
+            <h1 className="text-xl font-bold text-amber-400">
+              🏴‍☠️ OP TCG Tracker
+            </h1>
+            <p className="text-slate-400 text-xs mt-1">
+              Sealed Product Prices
+            </p>
+          </div>
+          <button
+            onClick={() => setShowSettings(true)}
+            className="text-slate-400 hover:text-white p-2"
+          >
+            ⚙️
+          </button>
+        </div>
       </div>
 
       {renderMainTabs()}
@@ -769,9 +1011,11 @@ export default function Home() {
       {/* Save Status */}
       {saveStatus && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-green-500 text-white px-4 py-2 rounded-lg text-sm">
-          {saveStatus}
+          {syncing ? '🔄 ' : ''}{saveStatus}
         </div>
       )}
+      
+      {showSettings && renderSettings()}
     </div>
   );
 
@@ -1001,7 +1245,7 @@ export default function Home() {
         {/* Save Status */}
         {saveStatus && (
           <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-green-500 text-white px-4 py-2 rounded-lg text-sm">
-            {saveStatus}
+            {syncing ? '🔄 ' : ''}{saveStatus}
           </div>
         )}
       </div>
@@ -1011,7 +1255,10 @@ export default function Home() {
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-        <div className="text-amber-400">Loading...</div>
+        <div className="text-center">
+          <div className="text-amber-400 text-xl mb-2">🏴‍☠️</div>
+          <div className="text-amber-400">Loading...</div>
+        </div>
       </div>
     );
   }
